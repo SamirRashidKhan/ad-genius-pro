@@ -382,6 +382,17 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      create_ad_with_tokens: {
+        Args: {
+          _ad_type: string
+          _business_id: string
+          _duration_seconds: number
+          _platforms: string[]
+          _title: string
+          _tokens_needed: number
+        }
+        Returns: string
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]

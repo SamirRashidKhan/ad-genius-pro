@@ -170,43 +170,33 @@ const CreateAd = () => {
 
     setIsCreating(true);
 
-    const { data: ad, error } = await supabase
-      .from("advertisements")
-      .insert({
-        user_id: user.id,
-        business_id: selectedBusiness,
-        title,
-        ad_type: selectedType,
-        duration_seconds: parseInt(duration),
-        platforms: selectedPlatforms,
-        status: "processing",
-        tokens_spent: tokensNeeded,
-      })
-      .select()
-      .single();
+    // Use secure RPC function for atomic token deduction and ad creation
+    const { data: adId, error } = await supabase
+      .rpc('create_ad_with_tokens', {
+        _business_id: selectedBusiness,
+        _title: title,
+        _ad_type: selectedType,
+        _duration_seconds: parseInt(duration),
+        _platforms: selectedPlatforms,
+        _tokens_needed: tokensNeeded
+      });
 
     if (error) {
       toast({
         title: "Error",
-        description: "Failed to create ad. Please try again.",
+        description: error.message || "Failed to create ad. Please try again.",
         variant: "destructive",
       });
       setIsCreating(false);
       return;
     }
 
-    // Deduct tokens
-    await supabase
-      .from("user_tokens")
-      .update({ balance: tokenBalance - tokensNeeded })
-      .eq("user_id", user.id);
-
     toast({
       title: "Ad created!",
       description: "Your ad is being generated. We'll notify you when it's ready.",
     });
 
-    navigate(`/my-ads/${ad.id}`);
+    navigate(`/my-ads/${adId}`);
   };
 
   if (isLoading) {
