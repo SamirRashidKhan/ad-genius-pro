@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
+import { Progress } from "@/components/ui/progress";
 import {
   Select,
   SelectContent,
@@ -28,6 +29,8 @@ import {
   Facebook,
   Youtube,
   Play,
+  Wand2,
+  CheckCircle,
 } from "lucide-react";
 
 interface Business {
@@ -77,6 +80,8 @@ const CreateAd = () => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState(0);
+  const [generationStep, setGenerationStep] = useState("");
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [tokenBalance, setTokenBalance] = useState(0);
 
@@ -169,6 +174,8 @@ const CreateAd = () => {
     }
 
     setIsCreating(true);
+    setGenerationProgress(10);
+    setGenerationStep("Creating ad record...");
 
     // Use secure RPC function for atomic token deduction and ad creation
     const { data: adId, error } = await supabase
@@ -188,15 +195,65 @@ const CreateAd = () => {
         variant: "destructive",
       });
       setIsCreating(false);
+      setGenerationProgress(0);
+      setGenerationStep("");
       return;
     }
 
-    toast({
-      title: "Ad created!",
-      description: "Your ad is being generated. We'll notify you when it's ready.",
-    });
+    // Now call AI to generate the ad content
+    setGenerationProgress(30);
+    setGenerationStep("AI is analyzing your business...");
 
-    navigate(`/my-ads/${adId}`);
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      
+      setGenerationProgress(50);
+      setGenerationStep("Generating script & captions...");
+
+      const response = await supabase.functions.invoke('generate-ad', {
+        body: {
+          adId,
+          businessId: selectedBusiness,
+          adType: selectedType,
+          title,
+          description,
+          duration: parseInt(duration),
+          platforms: selectedPlatforms
+        }
+      });
+
+      if (response.error) {
+        throw new Error(response.error.message || "AI generation failed");
+      }
+
+      setGenerationProgress(80);
+      setGenerationStep("Finalizing your ad...");
+
+      // Small delay for UX
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      setGenerationProgress(100);
+      setGenerationStep("Complete!");
+
+      toast({
+        title: "Ad generated!",
+        description: "Your AI-powered ad is ready for preview.",
+      });
+
+      // Navigate after a brief moment to show completion
+      setTimeout(() => {
+        navigate(`/my-ads`);
+      }, 800);
+
+    } catch (genError) {
+      console.error("AI generation error:", genError);
+      toast({
+        title: "Partial success",
+        description: "Ad created but AI generation had issues. You can retry from My Ads.",
+        variant: "destructive",
+      });
+      navigate(`/my-ads`);
+    }
   };
 
   if (isLoading) {
@@ -402,17 +459,40 @@ const CreateAd = () => {
                   </div>
                 )}
 
+                {isCreating && (
+                  <div className="mb-4 space-y-3">
+                    <div className="flex items-center gap-3">
+                      <div className="relative">
+                        <Wand2 className="w-5 h-5 text-primary animate-pulse" />
+                        <div className="absolute inset-0 animate-ping">
+                          <Sparkles className="w-5 h-5 text-primary/50" />
+                        </div>
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-primary">{generationStep}</p>
+                        <Progress value={generationProgress} className="h-2 mt-1" />
+                      </div>
+                      {generationProgress === 100 && (
+                        <CheckCircle className="w-5 h-5 text-green-500" />
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 <Button
                   onClick={handleCreate}
                   disabled={isCreating || !canAfford || !selectedBusiness || !title}
                   className="w-full h-12 bg-gradient-primary hover:opacity-90 text-white"
                 >
                   {isCreating ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                      Generating with AI...
+                    </>
                   ) : (
                     <>
-                      <Play className="w-5 h-5 mr-2" />
-                      Generate Ad ({tokensNeeded} tokens)
+                      <Wand2 className="w-5 h-5 mr-2" />
+                      Generate Ad with AI ({tokensNeeded} tokens)
                     </>
                   )}
                 </Button>
