@@ -38,7 +38,23 @@ export const StepMediaAssets = ({ businessId, userId }: StepMediaAssetsProps) =>
       .eq("business_id", businessId);
 
     if (!error && data) {
-      setAssets(data);
+      // Generate signed URLs for each asset
+      const assetsWithSignedUrls = await Promise.all(
+        data.map(async (asset) => {
+          // Check if it's already a full URL (legacy) or a file path
+          if (asset.file_url.startsWith("http")) {
+            return asset;
+          }
+          const { data: signedData } = await supabase.storage
+            .from("business-assets")
+            .createSignedUrl(asset.file_url, 3600); // 1-hour expiry for display
+          return {
+            ...asset,
+            file_url: signedData?.signedUrl || asset.file_url,
+          };
+        })
+      );
+      setAssets(assetsWithSignedUrls);
     }
   };
 
@@ -72,7 +88,8 @@ export const StepMediaAssets = ({ businessId, userId }: StepMediaAssetsProps) =>
       }
 
       const fileExt = file.name.split(".").pop();
-      const fileName = `${uploadType}/${businessId}/${Date.now()}.${fileExt}`;
+      // Use randomized filename to prevent enumeration attacks
+      const fileName = `${uploadType}/${businessId}/${crypto.randomUUID()}.${fileExt}`;
 
       const { error: uploadError } = await supabase.storage
         .from("business-assets")
@@ -87,13 +104,23 @@ export const StepMediaAssets = ({ businessId, userId }: StepMediaAssetsProps) =>
         continue;
       }
 
-      const { data: urlData } = supabase.storage
+      // Use signed URLs for private bucket instead of public URLs
+      const { data: signedData, error: signError } = await supabase.storage
         .from("business-assets")
-        .getPublicUrl(fileName);
+        .createSignedUrl(fileName, 86400); // 24-hour expiry
+
+      if (signError || !signedData) {
+        toast({
+          title: "Upload failed",
+          description: `Failed to get URL for ${file.name}.`,
+          variant: "destructive",
+        });
+        continue;
+      }
 
       await supabase.from("business_assets").insert({
         business_id: businessId,
-        file_url: urlData.publicUrl,
+        file_url: fileName, // Store the file path, not the signed URL
         asset_type: uploadType,
         file_name: file.name,
       });

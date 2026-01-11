@@ -24,7 +24,8 @@ serve(async (req) => {
   try {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
-      console.error("LOVABLE_API_KEY not configured");
+      // Only log error type, not full details
+      console.error("Configuration error: AI service key missing");
       throw new Error("AI service not configured");
     }
 
@@ -41,7 +42,8 @@ serve(async (req) => {
     }
 
     const { adId, businessId, adType, title, description, duration, platforms }: AdRequest = await req.json();
-    console.log("Generating ad:", { adId, businessId, adType, title, duration, platforms });
+    // Sanitized logging - only log IDs, not full data
+    console.log("Processing ad generation:", { adId, adType, duration });
 
     // Fetch business data for context
     const { data: business, error: bizError } = await supabase
@@ -51,7 +53,7 @@ serve(async (req) => {
       .single();
 
     if (bizError || !business) {
-      console.error("Business not found:", bizError);
+      console.error("Business fetch failed:", { businessId, errorCode: bizError?.code });
       throw new Error("Business not found");
     }
 
@@ -61,7 +63,7 @@ serve(async (req) => {
       .select("*")
       .eq("business_id", businessId);
 
-    console.log("Business context loaded:", business.name, "Assets:", assets?.length || 0);
+    console.log("Business context loaded. Assets count:", assets?.length || 0);
 
     // Build rich context for AI
     const businessContext = `
@@ -109,7 +111,7 @@ Format your response as JSON with the following structure:
   "visualStyle": "Visual style and color recommendations"
 }`;
 
-    console.log("Calling AI for script generation...");
+    console.log("Starting AI script generation...");
     
     const scriptResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -177,12 +179,12 @@ Format your response as JSON with the following structure:
         });
       }
       const errorText = await scriptResponse.text();
-      console.error("AI script generation failed:", scriptResponse.status, errorText);
+      console.error("AI script generation failed:", { status: scriptResponse.status });
       throw new Error("Failed to generate ad script");
     }
 
     const scriptData = await scriptResponse.json();
-    console.log("Script generation response received");
+    console.log("Script generation completed");
 
     let adContent;
     try {
@@ -198,7 +200,7 @@ Format your response as JSON with the following structure:
         }
       }
     } catch (parseError) {
-      console.error("Failed to parse ad content:", parseError);
+      console.error("Content parsing failed");
       throw new Error("Failed to parse AI response");
     }
 
@@ -209,7 +211,7 @@ Format your response as JSON with the following structure:
     // Generate promotional image if needed
     let generatedImageUrl = null;
     if (adType === "image" || adType === "both") {
-      console.log("Generating promotional image...");
+      console.log("Starting image generation...");
       
       const imagePrompt = `Create a professional, high-quality promotional advertisement image for ${business.name}.
 Style: ${adContent.visualStyle || "Modern, clean, professional"}
@@ -238,9 +240,9 @@ Ultra high resolution, professional advertising photography style.`;
       if (imageResponse.ok) {
         const imageData = await imageResponse.json();
         generatedImageUrl = imageData.choices?.[0]?.message?.images?.[0]?.image_url?.url;
-        console.log("Image generated successfully");
+        console.log("Image generation completed");
       } else {
-        console.warn("Image generation failed, continuing without image");
+        console.log("Image generation skipped - non-critical");
       }
     }
 
@@ -274,11 +276,11 @@ Ultra high resolution, professional advertising photography style.`;
       .eq("id", adId);
 
     if (updateError) {
-      console.error("Failed to update advertisement:", updateError);
+      console.error("Ad update failed:", { adId, errorCode: updateError.code });
       throw new Error("Failed to save generated content");
     }
 
-    console.log("Ad generation completed successfully for:", adId);
+    console.log("Ad generation completed:", { adId });
 
     return new Response(JSON.stringify({
       success: true,
@@ -300,7 +302,11 @@ Ultra high resolution, professional advertising photography style.`;
     });
 
   } catch (error) {
-    console.error("Ad generation error:", error);
+    // Sanitized error logging - only log error type, not full stack/message
+    console.error("Ad generation error:", {
+      type: error instanceof Error ? error.constructor.name : "Unknown",
+      message: error instanceof Error ? error.message : "Unknown error"
+    });
     return new Response(JSON.stringify({ 
       error: error instanceof Error ? error.message : "Ad generation failed" 
     }), {

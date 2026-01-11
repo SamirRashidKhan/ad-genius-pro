@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
+import { logError } from "@/lib/errorLogger";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -84,7 +85,7 @@ export const DashboardHome = ({ user }: DashboardHomeProps) => {
         });
         setHasCompletedOnboarding(businessData?.onboarding_completed || false);
       } catch (error) {
-        console.error("Error fetching dashboard stats:", error);
+        logError("Error fetching dashboard stats:", error);
       } finally {
         setIsLoading(false);
       }

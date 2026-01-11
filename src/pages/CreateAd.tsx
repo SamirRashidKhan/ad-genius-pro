@@ -32,6 +32,7 @@ import {
   Wand2,
   CheckCircle,
 } from "lucide-react";
+import { logError } from "@/lib/errorLogger";
 
 interface Business {
   id: string;
@@ -246,7 +247,7 @@ const CreateAd = () => {
       }, 800);
 
     } catch (genError) {
-      console.error("AI generation error:", genError);
+      logError("AI generation error:", genError);
       toast({
         title: "Partial success",
         description: "Ad created but AI generation had issues. You can retry from My Ads.",
