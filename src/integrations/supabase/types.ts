@@ -34,6 +34,7 @@ export type Database = {
           tokens_spent: number | null
           updated_at: string
           user_id: string
+          video_segments: Json | null
         }
         Insert: {
           ad_type: string
@@ -54,6 +55,7 @@ export type Database = {
           tokens_spent?: number | null
           updated_at?: string
           user_id: string
+          video_segments?: Json | null
         }
         Update: {
           ad_type?: string
@@ -74,6 +76,7 @@ export type Database = {
           tokens_spent?: number | null
           updated_at?: string
           user_id?: string
+          video_segments?: Json | null
         }
         Relationships: [
           {
