@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { useSignedUrl } from "@/hooks/use-signed-url";
 import { Palette, Upload, Loader2, X } from "lucide-react";
 import { BusinessData } from "../OnboardingWizard";
 
@@ -26,6 +27,9 @@ interface StepBrandIdentityProps {
 export const StepBrandIdentity = ({ formData, updateFormData }: StepBrandIdentityProps) => {
   const { toast } = useToast();
   const [isUploading, setIsUploading] = useState(false);
+  
+  // Get signed URL for displaying the logo
+  const { signedUrl: logoDisplayUrl, isLoading: isLoadingUrl } = useSignedUrl(formData.logo_url);
 
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -52,7 +56,8 @@ export const StepBrandIdentity = ({ formData, updateFormData }: StepBrandIdentit
     setIsUploading(true);
 
     const fileExt = file.name.split(".").pop();
-    const fileName = `logos/${Date.now()}.${fileExt}`;
+    // Use randomized filename to prevent enumeration attacks
+    const fileName = `logos/${crypto.randomUUID()}.${fileExt}`;
 
     const { error: uploadError, data } = await supabase.storage
       .from("business-assets")
@@ -68,11 +73,23 @@ export const StepBrandIdentity = ({ formData, updateFormData }: StepBrandIdentit
       return;
     }
 
-    const { data: urlData } = supabase.storage
+    // Use signed URLs for private bucket instead of public URLs
+    const { data: signedData, error: signError } = await supabase.storage
       .from("business-assets")
-      .getPublicUrl(fileName);
+      .createSignedUrl(fileName, 86400); // 24-hour expiry
 
-    updateFormData({ logo_url: urlData.publicUrl });
+    if (signError || !signedData) {
+      toast({
+        title: "Upload failed",
+        description: "Failed to get logo URL. Please try again.",
+        variant: "destructive",
+      });
+      setIsUploading(false);
+      return;
+    }
+
+    // Store the file path, not the signed URL (URLs expire)
+    updateFormData({ logo_url: fileName });
     setIsUploading(false);
 
     toast({
@@ -103,11 +120,17 @@ export const StepBrandIdentity = ({ formData, updateFormData }: StepBrandIdentit
         <div className="flex items-center gap-4">
           {formData.logo_url ? (
             <div className="relative">
-              <img
-                src={formData.logo_url}
-                alt="Logo"
-                className="w-24 h-24 rounded-xl object-cover border border-border"
-              />
+              {isLoadingUrl ? (
+                <div className="w-24 h-24 rounded-xl border border-border flex items-center justify-center">
+                  <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <img
+                  src={logoDisplayUrl || ""}
+                  alt="Logo"
+                  className="w-24 h-24 rounded-xl object-cover border border-border"
+                />
+              )}
               <button
                 onClick={removeLogo}
                 className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center"
