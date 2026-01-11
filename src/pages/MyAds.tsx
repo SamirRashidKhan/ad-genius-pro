@@ -18,6 +18,7 @@ import {
   CheckCircle,
   XCircle,
   Loader2,
+  Maximize2,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -25,6 +26,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { FullscreenPreview } from "@/components/ads/FullscreenPreview";
 
 interface Advertisement {
   id: string;
@@ -52,6 +54,7 @@ const MyAds = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [ads, setAds] = useState<Advertisement[]>([]);
   const [activeTab, setActiveTab] = useState("all");
+  const [previewAd, setPreviewAd] = useState<Advertisement | null>(null);
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
@@ -140,14 +143,15 @@ const MyAds = () => {
                   const StatusIcon = status.icon;
 
                   return (
-                    <Card key={ad.id} className="overflow-hidden hover:border-primary/50 transition-colors">
+                    <Card key={ad.id} className="overflow-hidden hover:border-primary/50 transition-colors group">
                       {/* Thumbnail */}
                       <div className="aspect-video bg-muted relative">
                         {ad.preview_url ? (
                           <img
                             src={ad.preview_url}
                             alt={ad.title}
-                            className="w-full h-full object-cover"
+                            className="w-full h-full object-cover cursor-pointer"
+                            onClick={() => setPreviewAd(ad)}
                           />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center">
@@ -159,6 +163,21 @@ const MyAds = () => {
                           </div>
                         )}
                         
+                        {/* Fullscreen button */}
+                        {ad.preview_url && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="absolute top-2 right-2 bg-black/50 hover:bg-black/70 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setPreviewAd(ad);
+                            }}
+                          >
+                            <Maximize2 className="w-4 h-4" />
+                          </Button>
+                        )}
+
                         {/* Status Badge */}
                         <Badge className={`absolute top-2 left-2 ${status.color}`}>
                           <StatusIcon className={`w-3 h-3 mr-1 ${ad.status === "processing" ? "animate-spin" : ""}`} />
@@ -167,7 +186,7 @@ const MyAds = () => {
 
                         {/* Watermark indicator */}
                         {ad.has_watermark && ad.preview_url && (
-                          <div className="absolute inset-0 flex items-center justify-center">
+                          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                             <span className="text-white/30 text-4xl font-bold rotate-[-30deg]">
                               PREVIEW
                             </span>
@@ -223,6 +242,15 @@ const MyAds = () => {
             )}
           </TabsContent>
         </Tabs>
+
+        {/* Fullscreen Preview Modal */}
+        <FullscreenPreview
+          open={!!previewAd}
+          onOpenChange={(open) => !open && setPreviewAd(null)}
+          mediaUrl={previewAd?.preview_url || previewAd?.final_url || ""}
+          mediaType={previewAd?.ad_type === "video" ? "video" : "image"}
+          title={previewAd?.title}
+        />
       </div>
     </DashboardLayout>
   );
