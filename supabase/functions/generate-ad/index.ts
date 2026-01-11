@@ -16,6 +16,20 @@ interface AdRequest {
   platforms: string[];
 }
 
+interface VideoSegment {
+  imageUrl: string;
+  startTime: number;
+  endTime: number;
+  caption?: string;
+}
+
+// Calculate number of segments needed based on duration
+const calculateSegments = (duration: number): number => {
+  // Each segment is approximately 5-10 seconds
+  const segmentDuration = 5;
+  return Math.max(2, Math.ceil(duration / segmentDuration));
+};
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -24,7 +38,6 @@ serve(async (req) => {
   try {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
-      // Only log error type, not full details
       console.error("Configuration error: AI service key missing");
       throw new Error("AI service not configured");
     }
@@ -42,7 +55,6 @@ serve(async (req) => {
     }
 
     const { adId, businessId, adType, title, description, duration, platforms }: AdRequest = await req.json();
-    // Sanitized logging - only log IDs, not full data
     console.log("Processing ad generation:", { adId, adType, duration });
 
     // Fetch business data for context
@@ -76,8 +88,10 @@ Target Audience: ${business.target_gender || "All"}, Age ${business.target_age_m
 `;
 
     const platformsStr = platforms.join(", ");
+    const numSegments = calculateSegments(duration);
+    const segmentDuration = duration / numSegments;
 
-    // Generate ad script using Gemini
+    // Generate ad script with segment breakdown
     const scriptPrompt = `You are an expert advertising copywriter and creative director. Create a compelling ${adType} advertisement for the following business:
 
 ${businessContext}
@@ -85,6 +99,7 @@ ${businessContext}
 Ad Title: ${title}
 ${description ? `Additional Context: ${description}` : ""}
 Video Duration: ${duration} seconds
+Number of Segments: ${numSegments} (each ~${Math.round(segmentDuration)} seconds)
 Target Platforms: ${platformsStr}
 
 Generate:
@@ -92,7 +107,8 @@ Generate:
 2. Main message with emotional appeal
 3. Key selling points (2-3 max)
 4. Strong call-to-action
-5. Hashtags and captions for each platform
+5. ${numSegments} distinct visual scenes for the video, each with a description and caption
+6. Hashtags and captions for each platform
 
 Format your response as JSON with the following structure:
 {
@@ -101,6 +117,14 @@ Format your response as JSON with the following structure:
   "sellingPoints": ["Point 1", "Point 2", "Point 3"],
   "callToAction": "CTA text",
   "script": "Full ${duration}-second script with scene descriptions and timing",
+  "scenes": [
+    {
+      "sceneNumber": 1,
+      "description": "Detailed visual description for AI image generation",
+      "caption": "On-screen text/caption for this scene",
+      "duration": ${Math.round(segmentDuration)}
+    }
+  ],
   "captions": {
     "instagram": "Caption with hashtags for Instagram",
     "facebook": "Caption for Facebook",
@@ -111,7 +135,7 @@ Format your response as JSON with the following structure:
   "visualStyle": "Visual style and color recommendations"
 }`;
 
-    console.log("Starting AI script generation...");
+    console.log("Starting AI script generation with", numSegments, "segments...");
     
     const scriptResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -130,7 +154,7 @@ Format your response as JSON with the following structure:
             type: "function",
             function: {
               name: "create_ad_content",
-              description: "Generate complete ad content with script, captions, and creative direction",
+              description: "Generate complete ad content with script, scenes, captions, and creative direction",
               parameters: {
                 type: "object",
                 properties: {
@@ -143,6 +167,19 @@ Format your response as JSON with the following structure:
                   },
                   callToAction: { type: "string", description: "Call to action text" },
                   script: { type: "string", description: "Full script with timing and scene descriptions" },
+                  scenes: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        sceneNumber: { type: "number" },
+                        description: { type: "string" },
+                        caption: { type: "string" },
+                        duration: { type: "number" }
+                      }
+                    },
+                    description: "Array of scene descriptions for video segments"
+                  },
                   captions: {
                     type: "object",
                     properties: {
@@ -155,7 +192,7 @@ Format your response as JSON with the following structure:
                   musicSuggestion: { type: "string", description: "Background music style" },
                   visualStyle: { type: "string", description: "Visual style recommendations" }
                 },
-                required: ["hook", "mainMessage", "sellingPoints", "callToAction", "script", "captions", "voiceoverText"],
+                required: ["hook", "mainMessage", "sellingPoints", "callToAction", "script", "scenes", "captions", "voiceoverText"],
                 additionalProperties: false
               }
             }
@@ -178,7 +215,6 @@ Format your response as JSON with the following structure:
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      const errorText = await scriptResponse.text();
       console.error("AI script generation failed:", { status: scriptResponse.status });
       throw new Error("Failed to generate ad script");
     }
@@ -192,7 +228,6 @@ Format your response as JSON with the following structure:
       if (toolCall?.function?.arguments) {
         adContent = JSON.parse(toolCall.function.arguments);
       } else {
-        // Fallback: try to parse from content
         const content = scriptData.choices?.[0]?.message?.content || "";
         const jsonMatch = content.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
@@ -208,10 +243,80 @@ Format your response as JSON with the following structure:
       throw new Error("No ad content generated");
     }
 
-    // Generate promotional image if needed
+    // Generate video segments for video ads
+    const videoSegments: VideoSegment[] = [];
+    
+    if (adType === "video" || adType === "both") {
+      console.log("Generating", numSegments, "video segments...");
+      
+      const scenes = adContent.scenes || [];
+      let currentTime = 0;
+      
+      // Generate images for each scene in parallel
+      const imagePromises = scenes.slice(0, numSegments).map(async (scene: any, index: number) => {
+        const scenePrompt = `Create a professional, high-quality promotional advertisement image.
+Business: ${business.name}
+Scene ${index + 1} of ${numSegments}: ${scene.description}
+Style: ${adContent.visualStyle || "Modern, clean, professional"}
+Brand Category: ${business.category || "Business"}
+Brand Tone: ${business.brand_tone || "Professional"}
+Make it suitable for ${platformsStr} video advertising.
+Ultra high resolution, cinematic advertising photography style.
+16:9 aspect ratio for video.`;
+
+        try {
+          const imageResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${LOVABLE_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model: "google/gemini-2.5-flash-image",
+              messages: [{ role: "user", content: scenePrompt }],
+              modalities: ["image", "text"]
+            }),
+          });
+
+          if (imageResponse.ok) {
+            const imageData = await imageResponse.json();
+            const imageUrl = imageData.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+            return {
+              index,
+              imageUrl,
+              caption: scene.caption,
+              duration: scene.duration || segmentDuration
+            };
+          }
+        } catch (err) {
+          console.log("Scene", index + 1, "image generation failed");
+        }
+        return null;
+      });
+
+      const results = await Promise.all(imagePromises);
+      
+      // Build video segments with timing
+      results.filter(Boolean).sort((a, b) => a!.index - b!.index).forEach((result) => {
+        if (result && result.imageUrl) {
+          const segment: VideoSegment = {
+            imageUrl: result.imageUrl,
+            startTime: currentTime,
+            endTime: currentTime + result.duration,
+            caption: result.caption
+          };
+          videoSegments.push(segment);
+          currentTime += result.duration;
+        }
+      });
+
+      console.log("Generated", videoSegments.length, "video segments");
+    }
+
+    // Generate preview image (first segment or standalone image)
     let generatedImageUrl = null;
-    if (adType === "image" || adType === "both") {
-      console.log("Starting image generation...");
+    if (adType === "image" || (adType === "both" && videoSegments.length === 0)) {
+      console.log("Starting standalone image generation...");
       
       const imagePrompt = `Create a professional, high-quality promotional advertisement image for ${business.name}.
 Style: ${adContent.visualStyle || "Modern, clean, professional"}
@@ -230,9 +335,7 @@ Ultra high resolution, professional advertising photography style.`;
         },
         body: JSON.stringify({
           model: "google/gemini-2.5-flash-image",
-          messages: [
-            { role: "user", content: imagePrompt }
-          ],
+          messages: [{ role: "user", content: imagePrompt }],
           modalities: ["image", "text"]
         }),
       });
@@ -241,9 +344,10 @@ Ultra high resolution, professional advertising photography style.`;
         const imageData = await imageResponse.json();
         generatedImageUrl = imageData.choices?.[0]?.message?.images?.[0]?.image_url?.url;
         console.log("Image generation completed");
-      } else {
-        console.log("Image generation skipped - non-critical");
       }
+    } else if (videoSegments.length > 0) {
+      // Use first segment as preview
+      generatedImageUrl = videoSegments[0].imageUrl;
     }
 
     // Format captions with proper platform-specific content
@@ -266,9 +370,11 @@ Ultra high resolution, professional advertising photography style.`;
           voiceover: adContent.voiceoverText,
           music: adContent.musicSuggestion,
           visualStyle: adContent.visualStyle,
-          platformCaptions: platformCaptions
+          platformCaptions: platformCaptions,
+          scenes: adContent.scenes
         }),
         preview_url: generatedImageUrl,
+        video_segments: videoSegments,
         has_watermark: true,
         status: "preview_ready",
         updated_at: new Date().toISOString()
@@ -280,7 +386,7 @@ Ultra high resolution, professional advertising photography style.`;
       throw new Error("Failed to save generated content");
     }
 
-    console.log("Ad generation completed:", { adId });
+    console.log("Ad generation completed:", { adId, segments: videoSegments.length });
 
     return new Response(JSON.stringify({
       success: true,
@@ -291,18 +397,19 @@ Ultra high resolution, professional advertising photography style.`;
         sellingPoints: adContent.sellingPoints,
         callToAction: adContent.callToAction,
         script: adContent.script,
+        scenes: adContent.scenes,
         voiceover: adContent.voiceoverText,
         music: adContent.musicSuggestion,
         visualStyle: adContent.visualStyle,
         captions: platformCaptions,
-        previewImage: generatedImageUrl
+        previewImage: generatedImageUrl,
+        videoSegments: videoSegments
       }
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 
   } catch (error) {
-    // Sanitized error logging - only log error type, not full stack/message
     console.error("Ad generation error:", {
       type: error instanceof Error ? error.constructor.name : "Unknown",
       message: error instanceof Error ? error.message : "Unknown error"
