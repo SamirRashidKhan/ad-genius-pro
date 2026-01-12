@@ -15,6 +15,7 @@ interface VideoAdPlayerProps {
   totalDuration: number;
   title?: string;
   voiceoverUrl?: string;
+  audioUrl?: string;
   onFullscreen?: () => void;
   className?: string;
   autoPlay?: boolean;
@@ -25,6 +26,7 @@ export const VideoAdPlayer = ({
   totalDuration,
   title,
   voiceoverUrl,
+  audioUrl,
   onFullscreen,
   className = "",
   autoPlay = false,
@@ -34,6 +36,7 @@ export const VideoAdPlayer = ({
   const [currentTime, setCurrentTime] = useState(0);
   const [currentSegmentIndex, setCurrentSegmentIndex] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const musicRef = useRef<HTMLAudioElement | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Calculate which segment should be shown based on current time
@@ -76,6 +79,9 @@ export const VideoAdPlayer = ({
       if (audioRef.current && voiceoverUrl) {
         audioRef.current.play().catch(() => {});
       }
+      if (musicRef.current && audioUrl) {
+        musicRef.current.play().catch(() => {});
+      }
     } else {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
@@ -85,6 +91,9 @@ export const VideoAdPlayer = ({
       if (audioRef.current) {
         audioRef.current.pause();
       }
+      if (musicRef.current) {
+        musicRef.current.pause();
+      }
     }
 
     return () => {
@@ -92,20 +101,29 @@ export const VideoAdPlayer = ({
         clearInterval(intervalRef.current);
       }
     };
-  }, [isPlaying, totalDuration, voiceoverUrl]);
+  }, [isPlaying, totalDuration, voiceoverUrl, audioUrl]);
 
   // Sync audio with playback
   useEffect(() => {
     if (audioRef.current) {
       audioRef.current.muted = isMuted;
     }
+    if (musicRef.current) {
+      musicRef.current.muted = isMuted;
+    }
   }, [isMuted]);
 
   // Reset audio when looping
   useEffect(() => {
-    if (audioRef.current && currentTime === 0 && isPlaying) {
-      audioRef.current.currentTime = 0;
-      audioRef.current.play().catch(() => {});
+    if (currentTime === 0 && isPlaying) {
+      if (audioRef.current) {
+        audioRef.current.currentTime = 0;
+        audioRef.current.play().catch(() => {});
+      }
+      if (musicRef.current) {
+        musicRef.current.currentTime = 0;
+        musicRef.current.play().catch(() => {});
+      }
     }
   }, [currentTime, isPlaying]);
 
@@ -123,6 +141,9 @@ export const VideoAdPlayer = ({
     if (audioRef.current) {
       audioRef.current.currentTime = 0;
     }
+    if (musicRef.current) {
+      musicRef.current.currentTime = 0;
+    }
     if (!isPlaying) {
       setIsPlaying(true);
     }
@@ -136,6 +157,9 @@ export const VideoAdPlayer = ({
     setCurrentTime(newTime);
     if (audioRef.current) {
       audioRef.current.currentTime = newTime % (audioRef.current.duration || totalDuration);
+    }
+    if (musicRef.current) {
+      musicRef.current.currentTime = newTime % (musicRef.current.duration || totalDuration);
     }
   };
 
@@ -276,6 +300,17 @@ export const VideoAdPlayer = ({
         <audio
           ref={audioRef}
           src={voiceoverUrl}
+          loop
+          muted={isMuted}
+          preload="auto"
+        />
+      )}
+
+      {/* Hidden audio element for background music */}
+      {audioUrl && (
+        <audio
+          ref={musicRef}
+          src={audioUrl}
           loop
           muted={isMuted}
           preload="auto"

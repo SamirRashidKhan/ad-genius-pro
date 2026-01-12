@@ -31,6 +31,9 @@ import {
   Play,
   Wand2,
   CheckCircle,
+  Music,
+  Upload,
+  X,
 } from "lucide-react";
 import { logError } from "@/lib/errorLogger";
 
@@ -93,6 +96,17 @@ const CreateAd = () => {
   const [description, setDescription] = useState("");
   const [duration, setDuration] = useState("30");
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(["instagram"]);
+  
+  // Audio settings
+  const [audioType, setAudioType] = useState<"ai" | "browser">("ai");
+  const [audioPrompt, setAudioPrompt] = useState("");
+  const [browserAudioFile, setBrowserAudioFile] = useState<File | null>(null);
+  const [browserAudioUrl, setBrowserAudioUrl] = useState<string>("");
+  
+  // Shop video upload
+  const [shopVideoFile, setShopVideoFile] = useState<File | null>(null);
+  const [shopVideoUrl, setShopVideoUrl] = useState<string>("");
+  const [isUploadingVideo, setIsUploadingVideo] = useState(false);
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
@@ -133,13 +147,91 @@ const CreateAd = () => {
     );
   };
 
+  const handleBrowserAudioUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (!file.type.startsWith("audio/")) {
+        toast({
+          title: "Invalid file type",
+          description: "Please upload an audio file (MP3, WAV, etc.)",
+          variant: "destructive",
+        });
+        return;
+      }
+      setBrowserAudioFile(file);
+      setBrowserAudioUrl(URL.createObjectURL(file));
+    }
+  };
+
+  const handleShopVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedBusiness) return;
+
+    if (!file.type.startsWith("video/")) {
+      toast({
+        title: "Invalid file type",
+        description: "Please upload a video file (MP4, MOV, etc.)",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (file.size > 100 * 1024 * 1024) {
+      toast({
+        title: "File too large",
+        description: "Video must be less than 100MB",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsUploadingVideo(true);
+    setShopVideoFile(file);
+
+    try {
+      const fileExt = file.name.split(".").pop();
+      const fileName = `shop-videos/${selectedBusiness}/${crypto.randomUUID()}.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("business-assets")
+        .upload(fileName, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: signedData } = await supabase.storage
+        .from("business-assets")
+        .createSignedUrl(fileName, 86400);
+
+      if (signedData) {
+        setShopVideoUrl(fileName);
+      }
+
+      toast({
+        title: "Video uploaded",
+        description: "Your shop video has been uploaded successfully.",
+      });
+    } catch (error) {
+      logError("Video upload error:", error);
+      toast({
+        title: "Upload failed",
+        description: "Failed to upload video. Please try again.",
+        variant: "destructive",
+      });
+      setShopVideoFile(null);
+    } finally {
+      setIsUploadingVideo(false);
+    }
+  };
+
   const calculateTokens = () => {
     const adType = adTypes.find((t) => t.id === selectedType);
     const durationConfig = durations.find((d) => d.value === duration);
     const baseTokens = adType?.baseTokens || 50;
     const multiplier = durationConfig?.multiplier || 1;
     const platformMultiplier = 1 + (selectedPlatforms.length - 1) * 0.2;
-    return Math.round(baseTokens * multiplier * platformMultiplier);
+    // Add extra tokens for AI music generation
+    const audioMultiplier = audioType === "ai" ? 1.2 : 1;
+    return Math.round(baseTokens * multiplier * platformMultiplier * audioMultiplier);
   };
 
   const handleCreate = async () => {
@@ -219,7 +311,11 @@ const CreateAd = () => {
           title,
           description,
           duration: parseInt(duration),
-          platforms: selectedPlatforms
+          platforms: selectedPlatforms,
+          audioType,
+          audioPrompt: audioType === "ai" ? audioPrompt : undefined,
+          browserAudioUrl: audioType === "browser" ? browserAudioUrl : undefined,
+          shopVideoUrl: shopVideoUrl || undefined,
         }
       });
 
@@ -398,6 +494,167 @@ const CreateAd = () => {
                       </button>
                     ))}
                   </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Audio Settings for Video Ads */}
+            {(selectedType === "video" || selectedType === "both") && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Music className="w-5 h-5" />
+                    Background Music
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {/* Audio Type Selection */}
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setAudioType("ai")}
+                      className={`flex-1 p-4 rounded-xl border text-center transition-all ${
+                        audioType === "ai"
+                          ? "border-primary bg-primary/10"
+                          : "border-border hover:border-primary/50"
+                      }`}
+                    >
+                      <Sparkles className={`w-6 h-6 mx-auto mb-2 ${audioType === "ai" ? "text-primary" : "text-muted-foreground"}`} />
+                      <p className="font-semibold">AI Generated</p>
+                      <p className="text-xs text-muted-foreground mt-1">Create unique music with AI</p>
+                    </button>
+                    <button
+                      onClick={() => setAudioType("browser")}
+                      className={`flex-1 p-4 rounded-xl border text-center transition-all ${
+                        audioType === "browser"
+                          ? "border-primary bg-primary/10"
+                          : "border-border hover:border-primary/50"
+                      }`}
+                    >
+                      <Upload className={`w-6 h-6 mx-auto mb-2 ${audioType === "browser" ? "text-primary" : "text-muted-foreground"}`} />
+                      <p className="font-semibold">Upload Your Own</p>
+                      <p className="text-xs text-muted-foreground mt-1">Use your own audio file</p>
+                    </button>
+                  </div>
+
+                  {/* AI Music Prompt */}
+                  {audioType === "ai" && (
+                    <div className="space-y-2">
+                      <Label htmlFor="audioPrompt">Music Style (optional)</Label>
+                      <Textarea
+                        id="audioPrompt"
+                        placeholder="e.g., Upbeat electronic music with energetic vibes, catchy pop tune with modern beats..."
+                        value={audioPrompt}
+                        onChange={(e) => setAudioPrompt(e.target.value)}
+                        rows={2}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Describe the style of music you want. Leave empty for AI to choose based on your ad.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Browser Audio Upload */}
+                  {audioType === "browser" && (
+                    <div className="space-y-3">
+                      {browserAudioFile ? (
+                        <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
+                          <Music className="w-8 h-8 text-primary" />
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium truncate">{browserAudioFile.name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {(browserAudioFile.size / (1024 * 1024)).toFixed(2)} MB
+                            </p>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setBrowserAudioFile(null);
+                              setBrowserAudioUrl("");
+                            }}
+                          >
+                            <X className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <label className="block p-6 border-2 border-dashed border-border hover:border-primary/50 rounded-xl cursor-pointer transition-colors text-center">
+                          <Upload className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                          <p className="font-medium">Click to upload audio</p>
+                          <p className="text-sm text-muted-foreground mt-1">MP3, WAV up to 20MB</p>
+                          <input
+                            type="file"
+                            accept="audio/*"
+                            onChange={handleBrowserAudioUpload}
+                            className="hidden"
+                          />
+                        </label>
+                      )}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Shop Video Upload */}
+            {(selectedType === "video" || selectedType === "both") && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Video className="w-5 h-5" />
+                    Shop/Product Video (Optional)
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Upload a video of your shop or products to include in the ad generation.
+                  </p>
+                  {shopVideoFile ? (
+                    <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
+                      <Video className="w-8 h-8 text-primary" />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium truncate">{shopVideoFile.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {(shopVideoFile.size / (1024 * 1024)).toFixed(2)} MB
+                        </p>
+                      </div>
+                      {isUploadingVideo ? (
+                        <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setShopVideoFile(null);
+                            setShopVideoUrl("");
+                          }}
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
+                      )}
+                    </div>
+                  ) : (
+                    <label className={`block p-6 border-2 border-dashed border-border hover:border-primary/50 rounded-xl cursor-pointer transition-colors text-center ${!selectedBusiness ? 'opacity-50 pointer-events-none' : ''}`}>
+                      {isUploadingVideo ? (
+                        <div className="flex flex-col items-center">
+                          <Loader2 className="w-8 h-8 animate-spin text-primary mb-2" />
+                          <p className="text-muted-foreground">Uploading...</p>
+                        </div>
+                      ) : (
+                        <>
+                          <Upload className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                          <p className="font-medium">Click to upload shop video</p>
+                          <p className="text-sm text-muted-foreground mt-1">MP4, MOV up to 100MB</p>
+                        </>
+                      )}
+                      <input
+                        type="file"
+                        accept="video/*"
+                        onChange={handleShopVideoUpload}
+                        className="hidden"
+                        disabled={isUploadingVideo || !selectedBusiness}
+                      />
+                    </label>
+                  )}
                 </CardContent>
               </Card>
             )}

@@ -19,6 +19,9 @@ export type Database = {
           ad_type: string
           ai_captions: string | null
           ai_script: string | null
+          audio_prompt: string | null
+          audio_type: string | null
+          audio_url: string | null
           business_id: string
           created_at: string
           duration_seconds: number | null
@@ -29,6 +32,7 @@ export type Database = {
           platforms: string[] | null
           preview_url: string | null
           revision_count: number | null
+          shop_video_url: string | null
           status: string
           title: string
           tokens_spent: number | null
@@ -40,6 +44,9 @@ export type Database = {
           ad_type: string
           ai_captions?: string | null
           ai_script?: string | null
+          audio_prompt?: string | null
+          audio_type?: string | null
+          audio_url?: string | null
           business_id: string
           created_at?: string
           duration_seconds?: number | null
@@ -50,6 +57,7 @@ export type Database = {
           platforms?: string[] | null
           preview_url?: string | null
           revision_count?: number | null
+          shop_video_url?: string | null
           status?: string
           title: string
           tokens_spent?: number | null
@@ -61,6 +69,9 @@ export type Database = {
           ad_type?: string
           ai_captions?: string | null
           ai_script?: string | null
+          audio_prompt?: string | null
+          audio_type?: string | null
+          audio_url?: string | null
           business_id?: string
           created_at?: string
           duration_seconds?: number | null
@@ -71,6 +82,7 @@ export type Database = {
           platforms?: string[] | null
           preview_url?: string | null
           revision_count?: number | null
+          shop_video_url?: string | null
           status?: string
           title?: string
           tokens_spent?: number | null
