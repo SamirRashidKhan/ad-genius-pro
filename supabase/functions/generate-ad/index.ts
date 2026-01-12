@@ -14,6 +14,10 @@ interface AdRequest {
   description?: string;
   duration: number;
   platforms: string[];
+  audioType?: "ai" | "browser";
+  audioPrompt?: string;
+  browserAudioUrl?: string;
+  shopVideoUrl?: string;
 }
 
 interface VideoSegment {
@@ -54,8 +58,8 @@ serve(async (req) => {
       });
     }
 
-    const { adId, businessId, adType, title, description, duration, platforms }: AdRequest = await req.json();
-    console.log("Processing ad generation:", { adId, adType, duration });
+    const { adId, businessId, adType, title, description, duration, platforms, audioType, audioPrompt, browserAudioUrl, shopVideoUrl }: AdRequest = await req.json();
+    console.log("Processing ad generation:", { adId, adType, duration, audioType });
 
     // Fetch business data for context
     const { data: business, error: bizError } = await supabase
@@ -350,6 +354,57 @@ Ultra high resolution, professional advertising photography style.`;
       generatedImageUrl = videoSegments[0].imageUrl;
     }
 
+    // Generate AI music if requested
+    let generatedAudioUrl: string | undefined;
+    if ((adType === "video" || adType === "both") && audioType === "ai") {
+      console.log("Generating AI music...");
+      
+      const ELEVENLABS_API_KEY = Deno.env.get("ELEVENLABS_API_KEY");
+      if (ELEVENLABS_API_KEY) {
+        try {
+          // Build music prompt based on ad content or user input
+          const musicPrompt = audioPrompt || 
+            `${adContent.musicSuggestion || "Upbeat, modern"} background music for a ${business.category || "business"} advertisement. ${adContent.visualStyle || "Professional and engaging"} style, ${duration} seconds long.`;
+          
+          const musicResponse = await fetch("https://api.elevenlabs.io/v1/music", {
+            method: "POST",
+            headers: {
+              "xi-api-key": ELEVENLABS_API_KEY,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              prompt: musicPrompt,
+              duration_seconds: duration,
+            }),
+          });
+
+          if (musicResponse.ok) {
+            const audioBuffer = await musicResponse.arrayBuffer();
+            const audioBytes = new Uint8Array(audioBuffer);
+            
+            // Upload to storage
+            const audioFileName = `ad-audio/${adId}/${crypto.randomUUID()}.mp3`;
+            const { error: uploadError } = await supabase.storage
+              .from("business-assets")
+              .upload(audioFileName, audioBytes, {
+                contentType: "audio/mpeg"
+              });
+            
+            if (!uploadError) {
+              generatedAudioUrl = audioFileName;
+              console.log("AI music generated and uploaded");
+            }
+          } else {
+            console.error("ElevenLabs music generation failed:", musicResponse.status);
+          }
+        } catch (musicError) {
+          console.error("Music generation error:", musicError);
+        }
+      } else {
+        console.log("ElevenLabs API key not configured, skipping AI music");
+      }
+    }
+
     // Format captions with proper platform-specific content
     const platformCaptions: Record<string, string> = {};
     for (const platform of platforms) {
@@ -375,6 +430,10 @@ Ultra high resolution, professional advertising photography style.`;
         }),
         preview_url: generatedImageUrl,
         video_segments: videoSegments,
+        audio_type: audioType || "ai",
+        audio_prompt: audioPrompt,
+        audio_url: generatedAudioUrl || browserAudioUrl,
+        shop_video_url: shopVideoUrl,
         has_watermark: true,
         status: "preview_ready",
         updated_at: new Date().toISOString()
@@ -386,7 +445,7 @@ Ultra high resolution, professional advertising photography style.`;
       throw new Error("Failed to save generated content");
     }
 
-    console.log("Ad generation completed:", { adId, segments: videoSegments.length });
+    console.log("Ad generation completed:", { adId, segments: videoSegments.length, hasAudio: !!generatedAudioUrl });
 
     return new Response(JSON.stringify({
       success: true,
@@ -403,7 +462,8 @@ Ultra high resolution, professional advertising photography style.`;
         visualStyle: adContent.visualStyle,
         captions: platformCaptions,
         previewImage: generatedImageUrl,
-        videoSegments: videoSegments
+        videoSegments: videoSegments,
+        audioUrl: generatedAudioUrl || browserAudioUrl
       }
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
