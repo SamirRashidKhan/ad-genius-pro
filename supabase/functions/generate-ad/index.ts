@@ -354,17 +354,22 @@ Ultra high resolution, professional advertising photography style.`;
       generatedImageUrl = videoSegments[0].imageUrl;
     }
 
-    // Generate AI music if requested
+    // Generate AI music if requested OR if no audio provided (auto-generate)
     let generatedAudioUrl: string | undefined;
-    if ((adType === "video" || adType === "both") && audioType === "ai") {
-      console.log("Generating AI music...");
+    const shouldGenerateAudio = (adType === "video" || adType === "both") && 
+      (audioType === "ai" || (!browserAudioUrl && !audioType));
+    
+    if (shouldGenerateAudio) {
+      console.log("Generating AI music (auto or requested)...");
       
       const ELEVENLABS_API_KEY = Deno.env.get("ELEVENLABS_API_KEY");
       if (ELEVENLABS_API_KEY) {
         try {
           // Build music prompt based on ad content or user input
           const musicPrompt = audioPrompt || 
-            `${adContent.musicSuggestion || "Upbeat, modern"} background music for a ${business.category || "business"} advertisement. ${adContent.visualStyle || "Professional and engaging"} style, ${duration} seconds long.`;
+            `${adContent.musicSuggestion || "Upbeat, modern"} background music for a ${business.category || "business"} advertisement. ${business.brand_tone || "Professional"} brand tone. ${adContent.visualStyle || "Engaging"} style, perfect for ${platformsStr} ads.`;
+          
+          console.log("Music prompt:", musicPrompt.substring(0, 100) + "...");
           
           const musicResponse = await fetch("https://api.elevenlabs.io/v1/music", {
             method: "POST",
@@ -374,7 +379,7 @@ Ultra high resolution, professional advertising photography style.`;
             },
             body: JSON.stringify({
               prompt: musicPrompt,
-              duration_seconds: duration,
+              duration_seconds: Math.min(duration, 300), // ElevenLabs max is 300s
             }),
           });
 
@@ -391,11 +396,19 @@ Ultra high resolution, professional advertising photography style.`;
               });
             
             if (!uploadError) {
-              generatedAudioUrl = audioFileName;
-              console.log("AI music generated and uploaded");
+              // Get signed URL for the audio
+              const { data: signedUrlData } = await supabase.storage
+                .from("business-assets")
+                .createSignedUrl(audioFileName, 60 * 60 * 24 * 365); // 1 year
+              
+              generatedAudioUrl = signedUrlData?.signedUrl || audioFileName;
+              console.log("AI music generated and uploaded successfully");
+            } else {
+              console.error("Audio upload error:", uploadError);
             }
           } else {
-            console.error("ElevenLabs music generation failed:", musicResponse.status);
+            const errorText = await musicResponse.text();
+            console.error("ElevenLabs music generation failed:", musicResponse.status, errorText);
           }
         } catch (musicError) {
           console.error("Music generation error:", musicError);
