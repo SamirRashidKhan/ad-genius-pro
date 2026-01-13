@@ -191,10 +191,13 @@ export type Database = {
       }
       campaigns: {
         Row: {
+          ad_description: string | null
+          ad_title: string | null
           advertisement_id: string
           budget_inr: number | null
           clicks: number | null
           created_at: string
+          description: string | null
           duration_days: number | null
           end_date: string | null
           id: string
@@ -209,10 +212,13 @@ export type Database = {
           views: number | null
         }
         Insert: {
+          ad_description?: string | null
+          ad_title?: string | null
           advertisement_id: string
           budget_inr?: number | null
           clicks?: number | null
           created_at?: string
+          description?: string | null
           duration_days?: number | null
           end_date?: string | null
           id?: string
@@ -227,10 +233,13 @@ export type Database = {
           views?: number | null
         }
         Update: {
+          ad_description?: string | null
+          ad_title?: string | null
           advertisement_id?: string
           budget_inr?: number | null
           clicks?: number | null
           created_at?: string
+          description?: string | null
           duration_days?: number | null
           end_date?: string | null
           id?: string
