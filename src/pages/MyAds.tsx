@@ -20,16 +20,19 @@ import {
   Loader2,
   Maximize2,
   Play,
+  Music,
 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { FullscreenPreview } from "@/components/ads/FullscreenPreview";
 import { VideoAdPlayer } from "@/components/ads/VideoAdPlayer";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { toast } from "sonner";
 interface VideoSegment {
   imageUrl: string;
   startTime: number;
@@ -44,6 +47,7 @@ interface Advertisement {
   status: string;
   preview_url: string | null;
   final_url: string | null;
+  audio_url: string | null;
   created_at: string;
   platforms: string[] | null;
   has_watermark: boolean;
@@ -74,6 +78,8 @@ const MyAds = () => {
   const [ads, setAds] = useState<Advertisement[]>([]);
   const [activeTab, setActiveTab] = useState("all");
   const [previewAd, setPreviewAd] = useState<Advertisement | null>(null);
+  const [downloadDialogAd, setDownloadDialogAd] = useState<Advertisement | null>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
@@ -104,6 +110,29 @@ const MyAds = () => {
   const filteredAds = activeTab === "all" 
     ? ads 
     : ads.filter((ad) => ad.status === activeTab);
+
+  // Download handler for different assets
+  const handleDownload = async (url: string, filename: string) => {
+    try {
+      setIsDownloading(true);
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+      toast.success("Download started!");
+    } catch (error) {
+      console.error("Download failed:", error);
+      toast.error("Failed to download file");
+    } finally {
+      setIsDownloading(false);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -171,6 +200,7 @@ const MyAds = () => {
                             <VideoAdPlayer
                               segments={videoSegments}
                               totalDuration={ad.duration_seconds || 30}
+                              audioUrl={ad.audio_url || undefined}
                               onFullscreen={() => setPreviewAd(ad)}
                               className="h-full"
                             />
@@ -245,15 +275,20 @@ const MyAds = () => {
                                   <MoreVertical className="w-4 h-4" />
                                 </Button>
                               </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
+                              <DropdownMenuContent align="end" className="bg-popover border-border">
                                 <DropdownMenuItem onClick={() => navigate(`/my-ads/${ad.id}`)}>
                                   <Eye className="w-4 h-4 mr-2" />
                                   View Details
                                 </DropdownMenuItem>
-                                {ad.final_url && (
-                                  <DropdownMenuItem>
-                                    <Download className="w-4 h-4 mr-2" />
-                                    Download
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={() => setDownloadDialogAd(ad)}>
+                                  <Download className="w-4 h-4 mr-2" />
+                                  Download Assets
+                                </DropdownMenuItem>
+                                {ad.audio_url && (
+                                  <DropdownMenuItem onClick={() => handleDownload(ad.audio_url!, `${ad.title}-audio.mp3`)}>
+                                    <Music className="w-4 h-4 mr-2" />
+                                    Download Audio
                                   </DropdownMenuItem>
                                 )}
                               </DropdownMenuContent>
@@ -288,6 +323,7 @@ const MyAds = () => {
                     <VideoAdPlayer
                       segments={parseVideoSegments(previewAd.video_segments)}
                       totalDuration={previewAd.duration_seconds || 30}
+                      audioUrl={previewAd.audio_url || undefined}
                       title={previewAd.title}
                       autoPlay
                       className="w-full h-full min-h-[50vh]"
@@ -305,6 +341,98 @@ const MyAds = () => {
               />
             )
           )}
+
+          {/* Download Dialog */}
+          <Dialog open={!!downloadDialogAd} onOpenChange={(open) => !open && setDownloadDialogAd(null)}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Download className="w-5 h-5" />
+                  Download Assets
+                </DialogTitle>
+              </DialogHeader>
+              {downloadDialogAd && (
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    Download assets for "{downloadDialogAd.title}"
+                  </p>
+                  
+                  <div className="space-y-2">
+                    {/* Preview Image */}
+                    {downloadDialogAd.preview_url && (
+                      <Button
+                        variant="outline"
+                        className="w-full justify-start"
+                        disabled={isDownloading}
+                        onClick={() => handleDownload(downloadDialogAd.preview_url!, `${downloadDialogAd.title}-preview.png`)}
+                      >
+                        <ImageIcon className="w-4 h-4 mr-2" />
+                        Preview Image
+                        {isDownloading && <Loader2 className="w-4 h-4 ml-auto animate-spin" />}
+                      </Button>
+                    )}
+
+                    {/* Video Segments (as individual frames) */}
+                    {parseVideoSegments(downloadDialogAd.video_segments).length > 0 && (
+                      <>
+                        <p className="text-xs text-muted-foreground pt-2">Video Frames:</p>
+                        {parseVideoSegments(downloadDialogAd.video_segments).map((segment, index) => (
+                          <Button
+                            key={index}
+                            variant="outline"
+                            size="sm"
+                            className="w-full justify-start"
+                            disabled={isDownloading}
+                            onClick={() => handleDownload(segment.imageUrl, `${downloadDialogAd.title}-frame-${index + 1}.png`)}
+                          >
+                            <Video className="w-4 h-4 mr-2" />
+                            Frame {index + 1} ({Math.round(segment.endTime - segment.startTime)}s)
+                          </Button>
+                        ))}
+                      </>
+                    )}
+
+                    {/* Audio */}
+                    {downloadDialogAd.audio_url && (
+                      <Button
+                        variant="outline"
+                        className="w-full justify-start"
+                        disabled={isDownloading}
+                        onClick={() => handleDownload(downloadDialogAd.audio_url!, `${downloadDialogAd.title}-audio.mp3`)}
+                      >
+                        <Music className="w-4 h-4 mr-2" />
+                        Background Music
+                        {isDownloading && <Loader2 className="w-4 h-4 ml-auto animate-spin" />}
+                      </Button>
+                    )}
+
+                    {/* Final Video (if approved) */}
+                    {downloadDialogAd.final_url && (
+                      <Button
+                        className="w-full justify-start bg-gradient-primary hover:opacity-90"
+                        disabled={isDownloading}
+                        onClick={() => handleDownload(downloadDialogAd.final_url!, `${downloadDialogAd.title}-final.mp4`)}
+                      >
+                        <Download className="w-4 h-4 mr-2" />
+                        Final Video (No Watermark)
+                        {isDownloading && <Loader2 className="w-4 h-4 ml-auto animate-spin" />}
+                      </Button>
+                    )}
+
+                    {/* No downloadable assets message */}
+                    {!downloadDialogAd.preview_url && 
+                     !downloadDialogAd.audio_url && 
+                     !downloadDialogAd.final_url &&
+                     parseVideoSegments(downloadDialogAd.video_segments).length === 0 && (
+                      <p className="text-sm text-muted-foreground text-center py-4">
+                        No downloadable assets available yet. Wait for processing to complete.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
         </div>
       </DashboardLayout>
     );
