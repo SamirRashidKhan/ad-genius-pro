@@ -21,6 +21,7 @@ import {
   Maximize2,
   Play,
   Music,
+  Film,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -33,6 +34,9 @@ import { FullscreenPreview } from "@/components/ads/FullscreenPreview";
 import { VideoAdPlayer } from "@/components/ads/VideoAdPlayer";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { Progress } from "@/components/ui/progress";
+import { useVideoGenerator } from "@/hooks/use-video-generator";
+
 interface VideoSegment {
   imageUrl: string;
   startTime: number;
@@ -62,7 +66,6 @@ const parseVideoSegments = (segments: unknown): VideoSegment[] => {
     typeof s === 'object' && s !== null && 'imageUrl' in s && 'startTime' in s && 'endTime' in s
   );
 };
-
 const statusConfig: Record<string, { label: string; icon: any; color: string }> = {
   draft: { label: "Draft", icon: Clock, color: "bg-muted text-muted-foreground" },
   processing: { label: "Processing", icon: Loader2, color: "bg-yellow-500/20 text-yellow-500" },
@@ -80,6 +83,9 @@ const MyAds = () => {
   const [previewAd, setPreviewAd] = useState<Advertisement | null>(null);
   const [downloadDialogAd, setDownloadDialogAd] = useState<Advertisement | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [videoGenerationProgress, setVideoGenerationProgress] = useState(0);
+  
+  const { generateVideo, downloadVideo, isGenerating } = useVideoGenerator();
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
@@ -134,6 +140,33 @@ const MyAds = () => {
     }
   };
 
+  // Generate and download full video
+  const handleGenerateFullVideo = async (ad: Advertisement) => {
+    const segments = parseVideoSegments(ad.video_segments);
+    if (segments.length === 0) {
+      toast.error("No video segments available");
+      return;
+    }
+
+    toast.info("Generating video... This may take a moment.");
+    setVideoGenerationProgress(0);
+
+    const videoBlob = await generateVideo({
+      segments,
+      audioUrl: ad.audio_url || undefined,
+      duration: ad.duration_seconds || 30,
+      title: ad.title,
+      onProgress: (progress) => setVideoGenerationProgress(progress),
+    });
+
+    if (videoBlob) {
+      await downloadVideo(videoBlob, `${ad.title}-full-video.webm`);
+      toast.success("Video downloaded successfully!");
+    } else {
+      toast.error("Failed to generate video. Try downloading frames instead.");
+    }
+    setVideoGenerationProgress(0);
+  };
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -343,7 +376,7 @@ const MyAds = () => {
           )}
 
           {/* Download Dialog */}
-          <Dialog open={!!downloadDialogAd} onOpenChange={(open) => !open && setDownloadDialogAd(null)}>
+          <Dialog open={!!downloadDialogAd} onOpenChange={(open) => !open && !isGenerating && setDownloadDialogAd(null)}>
             <DialogContent className="sm:max-w-md">
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
@@ -357,13 +390,43 @@ const MyAds = () => {
                     Download assets for "{downloadDialogAd.title}"
                   </p>
                   
+                  {/* Video Generation Progress */}
+                  {isGenerating && (
+                    <div className="space-y-2 p-4 bg-muted rounded-lg">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="flex items-center gap-2">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Generating video...
+                        </span>
+                        <span>{videoGenerationProgress}%</span>
+                      </div>
+                      <Progress value={videoGenerationProgress} className="h-2" />
+                      <p className="text-xs text-muted-foreground">
+                        Creating video with frames and audio. Please wait...
+                      </p>
+                    </div>
+                  )}
+                  
                   <div className="space-y-2">
+                    {/* Full Video Download - Primary CTA */}
+                    {parseVideoSegments(downloadDialogAd.video_segments).length > 0 && (
+                      <Button
+                        className="w-full justify-start bg-gradient-primary hover:opacity-90 text-white"
+                        disabled={isDownloading || isGenerating}
+                        onClick={() => handleGenerateFullVideo(downloadDialogAd)}
+                      >
+                        <Film className="w-4 h-4 mr-2" />
+                        Download Full Video (with audio)
+                        {isGenerating && <Loader2 className="w-4 h-4 ml-auto animate-spin" />}
+                      </Button>
+                    )}
+
                     {/* Preview Image */}
                     {downloadDialogAd.preview_url && (
                       <Button
                         variant="outline"
                         className="w-full justify-start"
-                        disabled={isDownloading}
+                        disabled={isDownloading || isGenerating}
                         onClick={() => handleDownload(downloadDialogAd.preview_url!, `${downloadDialogAd.title}-preview.png`)}
                       >
                         <ImageIcon className="w-4 h-4 mr-2" />
@@ -372,45 +435,49 @@ const MyAds = () => {
                       </Button>
                     )}
 
-                    {/* Video Segments (as individual frames) */}
-                    {parseVideoSegments(downloadDialogAd.video_segments).length > 0 && (
-                      <>
-                        <p className="text-xs text-muted-foreground pt-2">Video Frames:</p>
-                        {parseVideoSegments(downloadDialogAd.video_segments).map((segment, index) => (
-                          <Button
-                            key={index}
-                            variant="outline"
-                            size="sm"
-                            className="w-full justify-start"
-                            disabled={isDownloading}
-                            onClick={() => handleDownload(segment.imageUrl, `${downloadDialogAd.title}-frame-${index + 1}.png`)}
-                          >
-                            <Video className="w-4 h-4 mr-2" />
-                            Frame {index + 1} ({Math.round(segment.endTime - segment.startTime)}s)
-                          </Button>
-                        ))}
-                      </>
-                    )}
-
                     {/* Audio */}
                     {downloadDialogAd.audio_url && (
                       <Button
                         variant="outline"
                         className="w-full justify-start"
-                        disabled={isDownloading}
+                        disabled={isDownloading || isGenerating}
                         onClick={() => handleDownload(downloadDialogAd.audio_url!, `${downloadDialogAd.title}-audio.mp3`)}
                       >
                         <Music className="w-4 h-4 mr-2" />
-                        Background Music
+                        Background Music (AI Generated)
                         {isDownloading && <Loader2 className="w-4 h-4 ml-auto animate-spin" />}
                       </Button>
+                    )}
+
+                    {/* Video Frames - Collapsible */}
+                    {parseVideoSegments(downloadDialogAd.video_segments).length > 0 && (
+                      <details className="pt-2">
+                        <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground transition-colors">
+                          Individual Video Frames ({parseVideoSegments(downloadDialogAd.video_segments).length} frames)
+                        </summary>
+                        <div className="mt-2 space-y-1">
+                          {parseVideoSegments(downloadDialogAd.video_segments).map((segment, index) => (
+                            <Button
+                              key={index}
+                              variant="ghost"
+                              size="sm"
+                              className="w-full justify-start text-muted-foreground hover:text-foreground"
+                              disabled={isDownloading || isGenerating}
+                              onClick={() => handleDownload(segment.imageUrl, `${downloadDialogAd.title}-frame-${index + 1}.png`)}
+                            >
+                              <Video className="w-3 h-3 mr-2" />
+                              Frame {index + 1} ({Math.round(segment.endTime - segment.startTime)}s)
+                            </Button>
+                          ))}
+                        </div>
+                      </details>
                     )}
 
                     {/* Final Video (if approved) */}
                     {downloadDialogAd.final_url && (
                       <Button
-                        className="w-full justify-start bg-gradient-primary hover:opacity-90"
-                        disabled={isDownloading}
+                        className="w-full justify-start bg-green-600 hover:bg-green-700"
+                        disabled={isDownloading || isGenerating}
                         onClick={() => handleDownload(downloadDialogAd.final_url!, `${downloadDialogAd.title}-final.mp4`)}
                       >
                         <Download className="w-4 h-4 mr-2" />
