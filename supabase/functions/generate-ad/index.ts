@@ -47,9 +47,10 @@ serve(async (req) => {
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
+    // Validate Authorization header
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -58,20 +59,41 @@ serve(async (req) => {
       });
     }
 
-    const { adId, businessId, adType, title, description, duration, platforms, audioType, audioPrompt, browserAudioUrl, shopVideoUrl }: AdRequest = await req.json();
-    console.log("Processing ad generation:", { adId, adType, duration, audioType });
+    // Create client with user's token for auth context
+    const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader } }
+    });
 
-    // Fetch business data for context
-    const { data: business, error: bizError } = await supabase
+    // Validate the JWT token and get user
+    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser();
+    if (authError || !user) {
+      console.error("Auth validation failed:", authError?.message);
+      return new Response(JSON.stringify({ error: "Invalid or expired token" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const { adId, businessId, adType, title, description, duration, platforms, audioType, audioPrompt, browserAudioUrl, shopVideoUrl }: AdRequest = await req.json();
+    console.log("Processing ad generation:", { adId, adType, duration, audioType, userId: user.id });
+
+    // Validate business ownership using user's auth context (RLS enforced)
+    const { data: business, error: bizError } = await supabaseAuth
       .from("businesses")
       .select("*")
       .eq("id", businessId)
       .single();
 
     if (bizError || !business) {
-      console.error("Business fetch failed:", { businessId, errorCode: bizError?.code });
-      throw new Error("Business not found");
+      console.error("Business access denied:", { businessId, userId: user.id, errorCode: bizError?.code });
+      return new Response(JSON.stringify({ error: "Business not found or access denied" }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
+
+    // Use service role client for operations that need elevated access (after auth validation)
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // Fetch business assets
     const { data: assets } = await supabase

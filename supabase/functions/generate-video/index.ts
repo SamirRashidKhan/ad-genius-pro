@@ -28,9 +28,10 @@ serve(async (req) => {
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
+    // Validate Authorization header
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -39,9 +40,41 @@ serve(async (req) => {
       });
     }
 
+    // Validate JWT token and get user
+    const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader } }
+    });
+
+    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser();
+    if (authError || !user) {
+      console.error("Auth validation failed:", authError?.message);
+      return new Response(JSON.stringify({ error: "Invalid or expired token" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const { adId, segments, audioUrl, duration, title }: GenerateVideoRequest = await req.json();
     
-    console.log("Generating complete video for ad:", adId, "with", segments.length, "segments");
+    console.log("Generating video for user", user.id, "ad:", adId, "with", segments.length, "segments");
+
+    // Validate ad ownership using user's auth context (RLS enforced)
+    const { data: ad, error: adError } = await supabaseAuth
+      .from("advertisements")
+      .select("id, user_id")
+      .eq("id", adId)
+      .single();
+
+    if (adError || !ad) {
+      console.error("Ad access denied:", { adId, userId: user.id });
+      return new Response(JSON.stringify({ error: "Ad not found or access denied" }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Use service role client for storage operations (after auth validation)
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // Since we can't use FFmpeg in Deno Deploy, we'll create a downloadable package
     // with all assets and instructions, or use a video generation API
