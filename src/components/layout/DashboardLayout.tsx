@@ -28,6 +28,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -74,13 +75,16 @@ export const DashboardLayout = ({ children, user }: DashboardLayoutProps) => {
             <span className="text-xl font-bold">AiZBoostr</span>
           </Link>
           
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-          >
-            {isSidebarOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-          </Button>
+          <div className="flex items-center gap-3">
+            <ThemeToggle />
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            >
+              {isSidebarOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+            </Button>
+          </div>
         </div>
       </header>
 
@@ -137,8 +141,12 @@ export const DashboardLayout = ({ children, user }: DashboardLayoutProps) => {
             </ul>
           </nav>
 
-          {/* User Menu */}
-          <div className="p-4 border-t border-sidebar-border">
+          {/* Theme Toggle & User Menu */}
+          <div className="p-4 border-t border-sidebar-border space-y-3">
+            <div className="flex items-center justify-between px-2">
+              <span className="text-sm text-sidebar-foreground/70">Theme</span>
+              <ThemeToggle />
+            </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="flex items-center gap-3 w-full p-2 rounded-lg hover:bg-sidebar-accent transition-colors">
