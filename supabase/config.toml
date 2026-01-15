@@ -1,4 +1,10 @@
 project_id = "xxhuucksraoypvtdckqr"
 
 [functions.generate-ad]
-verify_jwt = false
+verify_jwt = true
+
+[functions.generate-music]
+verify_jwt = true
+
+[functions.generate-video]
+verify_jwt = true
